@@ -80,9 +80,19 @@ procedure Simulation is
          delay Duration(Random_Production_Time.Random(Number_Generator));
          Put_Line("Produced product => " & Product_Name(Product_Type_Number) & Integer'Image(Product_Number));
 
-         -- Accept for storage
-         Buffer.Take(Product_Type_Number, Product_Number);
-         Product_Number := Product_Number + 1;
+         delay Duration(5.0);
+         
+         loop
+            select
+               -- Accept for storage
+               delay Duration(10.0);
+               Put_Line("Product " & Product_Name(Product_Type_Number) & Integer'Image(Product_Number) & " seems to be in queue...");
+         
+            then abort 
+               Buffer.Take(Product_Type_Number, Product_Number);
+               Product_Number := Product_Number + 1;
+            end select;
+         end loop;
       end loop;
 
    end Producer_task;
@@ -117,16 +127,25 @@ procedure Simulation is
          delay Duration(Random_Consumption.Random(Time_Generator)); --  simulate consumption
          Assembly_Type := Random_Assembly.Random(Assembly_Time_Generator);
 
-         -- take an assembly for consumption
-         Buffer.Deliver(Assembly_Type, Assembly_Number, Assembly_Ready);
+         loop
+            select
+               -- take an assembly for consumption
+               Buffer.Deliver(Assembly_Type, Assembly_Number, Assembly_Ready);
 
-         if(Assembly_Ready) then
-            Put_Line(Consumer_Name(Consumer_Type_Number) &
-                       " => taken assembly => " &
-                       Assembly_Name(Assembly_Type) &
-                       " number " &
-                       Integer'Image(Assembly_Number));
-         end if;
+               if(Assembly_Ready) then
+                  Put_Line(Consumer_Name(Consumer_Type_Number) &
+                             " => taken assembly => " &
+                             Assembly_Name(Assembly_Type) &
+                             " number " &
+                             Integer'Image(Assembly_Number));
+               end if;
+            else
+               Put_Line("Consumer " & Consumer_Name(Consumer_Type_Number) & " is waiting for order: " & Assembly_Name(Assembly_Type) &
+                          Integer'Image(Assembly_Number));
+            end select;
+            
+            delay Duration(4.0);
+         end loop;
       end loop;
 
    end Consumer_task;
@@ -135,7 +154,7 @@ procedure Simulation is
    -- BUFFER
    task body Buffer_task is
 
-      Storage_Capacity: constant Integer := 30;
+      Storage_Capacity: constant Integer := 15;
 
       type Storage_type is array (Product_Type) of Integer;
       Storage: Storage_type
@@ -194,10 +213,9 @@ procedure Simulation is
 
       function Can_Accept(Product: Product_Type) return Boolean is
          Free_Space: Integer;
-         Lacking_Amount_Of_Product_For_Assembly: array(Product_Type) of Integer;
-         Lacking_Space_For_Assembly: Integer;
-
+         
       begin
+
          if In_Storage >= Storage_Capacity then
             return False;
          end if;
@@ -207,18 +225,10 @@ procedure Simulation is
             return True;
          end if;
 
-         -- get lacking space for products in assembly
-         for product in Product_Type loop
-            Lacking_Amount_Of_Product_For_Assembly(product) := Integer'Max(0, Max_Product_In_Assembly(product) - Storage(product));
-            Lacking_Space_For_Assembly := Lacking_Amount_Of_Product_For_Assembly(product);
-         end loop;
-
-
          -- There is free room in the storage
          Free_Space := Storage_Capacity - In_Storage;
 
-         -- check if there is enough room in storage
-         if Free_Space >= Lacking_Space_For_Assembly then
+         if Free_Space > Max_Other_In_Assembly(Product) then
             return True;
          end if;
 
@@ -247,6 +257,8 @@ procedure Simulation is
          for product in Product_Type loop
             Put_Line("Storage contents: " & Integer'Image(Storage(product)) & " " & Product_Name(product));
          end loop;
+         Put_Line("");
+         
       end Storage_Contents;
 
    begin
@@ -256,7 +268,6 @@ procedure Simulation is
 
       loop
          accept Take(Product: in Product_Type; Number: in Integer) do
-
             if Can_Accept(Product) then
                Put_Line("Accepted product " & Product_Name(Product) & " number " & Integer'Image(Number));
 
@@ -264,11 +275,13 @@ procedure Simulation is
                Storage(Product) := Storage(Product) + 1;
                In_Storage := In_Storage + 1;
             else
-               Put_Line("Rejected product " & Product_Name(Product) & " number " & Integer'Image(Number));
+               Put_Line("Storage full. Product: " & Product_Name(Product)  & Integer'Image(Number) & " is in queue...");
+               delay(20.0);
             end if;
+            Storage_Contents;
          end Take;
-
-         Storage_Contents;
+         
+         --Storage_Contents;
          accept Deliver(Assembly: in Assembly_Type; Number: out Integer; Is_Assembly_Ready: out Boolean) do
             Is_Assembly_Ready := False;
             Number := Assembly_Number(Assembly);
@@ -285,12 +298,12 @@ procedure Simulation is
                   In_Storage := In_Storage - Assembly_Content(Assembly, product);
                end loop;
 
-            else
-               Put_Line("Lacking products for assembly " & Assembly_Name(Assembly));
+               Is_Assembly_Ready := True;
+               
+               Storage_Contents;
             end if;
-         end Deliver;
 
-         Storage_Contents;
+         end Deliver;
       end loop;
 
    end Buffer_task;
