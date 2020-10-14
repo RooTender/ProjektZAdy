@@ -43,7 +43,7 @@ procedure Simulation is
    -- ]
    task type Buffer_task is
       entry Take(Product: in Product_Type; Number: in Integer);
-      entry Deliver(Assembly: in Assembly_Type; Number: out Integer; Is_Assembly_Ready: out Boolean);
+      entry Deliver(Assembly: in Assembly_Type; Is_Assembly_Ready: out Boolean);
    end Buffer_task;
 
    Producer: array ( 1 .. Number_Of_Products ) of Producer_task;
@@ -67,7 +67,7 @@ procedure Simulation is
       -- generate product data
       accept Start(Product: in Product_Type; Production_Time: in Integer) do
          Random_Production_Time.Reset(Number_Generator);
-         Product_Number := 1;
+         Product_Number := 0;
          Product_Type_Number := Product;
          Production := Production_Time;
       end Start;
@@ -81,14 +81,14 @@ procedure Simulation is
          Put_Line("Produced product => " & Product_Name(Product_Type_Number) & Integer'Image(Product_Number));
 
          delay Duration(5.0);
-         
+
          loop
             select
                -- Accept for storage
                delay Duration(10.0);
-               Put_Line("Product " & Product_Name(Product_Type_Number) & Integer'Image(Product_Number) & " seems to be in queue...");
-         
-            then abort 
+               Put_Line("Product " & Product_Name(Product_Type_Number) & Integer'Image(Product_Number) & " is in queue...");
+
+            then abort
                Buffer.Take(Product_Type_Number, Product_Number);
                Product_Number := Product_Number + 1;
             end select;
@@ -120,6 +120,7 @@ procedure Simulation is
          Random_Consumption.Reset(Time_Generator);
          Random_Assembly.Reset(Assembly_Time_Generator);
          Consumer_Type_Number := Consumer_Number;
+         Assembly_Number := 0;
       end Start;
 
       Put_Line("Started consumer " & Consumer_Name(Consumer_Type_Number));
@@ -130,7 +131,7 @@ procedure Simulation is
          loop
             select
                -- take an assembly for consumption
-               Buffer.Deliver(Assembly_Type, Assembly_Number, Assembly_Ready);
+               Buffer.Deliver(Assembly_Type, Assembly_Ready);
 
                if(Assembly_Ready) then
                   Put_Line(Consumer_Name(Consumer_Type_Number) &
@@ -138,12 +139,13 @@ procedure Simulation is
                              Assembly_Name(Assembly_Type) &
                              " number " &
                              Integer'Image(Assembly_Number));
+                  Assembly_Number := Assembly_Number + 1;
                end if;
             else
                Put_Line("Consumer " & Consumer_Name(Consumer_Type_Number) & " is waiting for order: " & Assembly_Name(Assembly_Type) &
                           Integer'Image(Assembly_Number));
             end select;
-            
+
             delay Duration(4.0);
          end loop;
       end loop;
@@ -213,7 +215,8 @@ procedure Simulation is
 
       function Can_Accept(Product: Product_Type) return Boolean is
          Free_Space: Integer;
-         
+         Min_Requirements : Boolean;
+
       begin
 
          if In_Storage >= Storage_Capacity then
@@ -229,7 +232,18 @@ procedure Simulation is
          Free_Space := Storage_Capacity - In_Storage;
 
          if Free_Space > Max_Other_In_Assembly(Product) then
-            return True;
+
+            Min_Requirements := True;
+            for i in Product_Type loop
+               if Storage(i) < Max_Product_In_Assembly(i) then
+                  Min_Requirements := False;
+               end if;
+            end loop;
+
+            if Min_Requirements then
+               return True;
+            end if;
+
          end if;
 
          -- no room for this product
@@ -258,7 +272,7 @@ procedure Simulation is
             Put_Line("Storage contents: " & Integer'Image(Storage(product)) & " " & Product_Name(product));
          end loop;
          Put_Line("");
-         
+
       end Storage_Contents;
 
    begin
@@ -280,17 +294,15 @@ procedure Simulation is
             end if;
             Storage_Contents;
          end Take;
-         
+
          --Storage_Contents;
-         accept Deliver(Assembly: in Assembly_Type; Number: out Integer; Is_Assembly_Ready: out Boolean) do
+         accept Deliver(Assembly: in Assembly_Type; Is_Assembly_Ready: out Boolean) do
             Is_Assembly_Ready := False;
-            Number := Assembly_Number(Assembly);
 
             if Can_Deliver(Assembly) then
-               Number := Assembly_Number(Assembly) + 1;
                Is_Assembly_Ready := True;
 
-               Put_Line("Delivered assembly " & Assembly_Name(Assembly) & " number " & Integer'Image(Number));
+               Put_Line("Delivered assembly " & Assembly_Name(Assembly) & " number " & Integer'Image(Assembly_Number(Assembly) + 1));
 
                -- remove used products from storage
                for product in Product_Type loop
@@ -299,7 +311,7 @@ procedure Simulation is
                end loop;
 
                Is_Assembly_Ready := True;
-               
+
                Storage_Contents;
             end if;
 
